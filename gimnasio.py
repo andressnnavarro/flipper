@@ -1,0 +1,439 @@
+"""
+GIMNASIO & PILETA FLIPPER - Aplicación de Gestión de Gimnasio
+
+Copyright (c) 2024 Zalinas y Navarro  
+
+Todos los derechos reservados. Este software está protegido por leyes de derechos de autor
+y tratados internacionales. No está permitida la reproducción, distribución, o modificación
+sin autorización expresa del autor.
+"""
+
+import customtkinter as ctk
+import tkinter as tk
+import subprocess
+from tkinter import Canvas, Scrollbar,simpledialog, messagebox
+from datetime import datetime, timedelta
+from PIL import Image, ImageTk
+import sqlite3
+import os
+
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+# Función para manejar la conexión a la base de datos
+def conexion_bd():
+    try:
+        return sqlite3.connect('gimnasio.db')
+    except sqlite3.Error as e:
+        messagebox.showerror("Error de Base de Datos", f"Error al conectar con la base de datos: {e}")
+        return None
+
+# Función para crear/migrar la tabla de usuarios
+def crear_tabla():
+    conn = conexion_bd()
+    if conn:
+        try:
+            c = conn.cursor()
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    dni TEXT PRIMARY KEY,
+                    nombre TEXT,
+                    telefono TEXT,
+                    fecha_abono TEXT,
+                    fecha_fin TEXT
+                )
+            ''')
+            conn.commit()
+        except sqlite3.Error as e:
+            messagebox.showerror("Error de Base de Datos", f"Error al crear la tabla: {e}")
+        finally:
+            conn.close()
+
+
+# Función para modificar la tabla y agregar la columna telefono si no existe
+def modificar_tabla():
+    conn = conexion_bd()
+    if conn:
+        try:
+            c = conn.cursor()
+            # Verificar si la columna 'telefono' ya existe
+            c.execute("PRAGMA table_info(usuarios)")
+            columnas = [info[1] for info in c.fetchall()]
+            if 'telefono' not in columnas:
+                c.execute("ALTER TABLE usuarios ADD COLUMN telefono TEXT")
+                conn.commit()
+        except sqlite3.Error as e:
+            messagebox.showerror("Error de Base de Datos", f"Error al modificar la tabla: {e}")
+        finally:
+            conn.close()
+
+modificar_tabla()
+
+def mostrar_info_usuario(usuario_encontrado):
+    if usuario_encontrado:
+        ventana_info_usuario = ctk.CTkToplevel()
+        ventana_info_usuario.title("Información del Usuario")
+        ventana_info_usuario.geometry("400x400")
+
+
+        dni = usuario_encontrado[0]
+        nombre = usuario_encontrado[1]
+        fecha_abono = datetime.strptime(usuario_encontrado[3], "%d/%m/%Y").strftime("%d/%m/%Y")
+        fecha_fin = datetime.strptime(usuario_encontrado[4], "%d/%m/%Y").strftime("%d/%m/%Y")
+        telefono = usuario_encontrado[2]
+
+        ctk.CTkLabel(ventana_info_usuario, text=f"DNI: {dni}", font=("Helvetica", 14, "bold")).pack(pady=5)
+        ctk.CTkLabel(ventana_info_usuario, text=f"Nombre: {nombre}", font=("Helvetica", 14, "bold")).pack(pady=5)
+        ctk.CTkLabel(ventana_info_usuario, text=f"Fecha de Abono: {fecha_abono}", font=("Helvetica", 14, "bold")).pack(pady=5)
+        ctk.CTkLabel(ventana_info_usuario, text=f"Fecha de Finalización: {fecha_fin}", font=("Helvetica", 14, "bold")).pack(pady=5)
+        ctk.CTkLabel(ventana_info_usuario, text=f"Teléfono: {telefono}", font=("Helvetica", 14, "bold")).pack(pady=5)
+
+        btn_actualizar_pago = ctk.CTkButton(ventana_info_usuario, text="Actualizar Pago", command=lambda: actualizar_pago(dni))
+        btn_actualizar_pago.pack(pady=10)
+
+        btn_editar_fechas = ctk.CTkButton(ventana_info_usuario, text="Editar Fechas", command=lambda: editar_fechas(dni))
+        btn_editar_fechas.pack(pady=10)
+
+        btn_editar_telefono = ctk.CTkButton(ventana_info_usuario, text="Editar Teléfono", command=lambda: editar_telefono(dni))
+        btn_editar_telefono.pack(pady=10)
+
+        btn_eliminar_usuario = ctk.CTkButton(ventana_info_usuario, text="Eliminar Usuario", command=lambda: eliminar_usuario(dni))
+        btn_eliminar_usuario.pack(pady=10)
+
+        btn_cerrar = ctk.CTkButton(ventana_info_usuario, text="Cerrar", command=ventana_info_usuario.destroy)
+        btn_cerrar.pack(pady=10)
+
+        ventana_info_usuario.bind("<*>", lambda event:ventana_info_usuario.destroy())
+        ventana_info_usuario.lift()
+        ventana_info_usuario.focus_set()
+        ventana_info_usuario.grab_set()
+        ventana_info_usuario.bind("<Destroy>",lambda event:entrada_dni.delete(0,tk.END))
+    else:
+        messagebox.showerror("Error", "No se encontró información del usuario.")
+        ventana_info_usuario.bind("<Destroy>",lambda event:entrada_dni.delete(0,tk.END))
+
+# Función para actualizar el pago 
+def actualizar_pago(dni):
+    def guardar_pago_actualizado():
+        duracion = var_duracion.get()
+        nueva_fecha_inicio = datetime.now().strftime("%d/%m/%Y")
+        if duracion == "Dos Semanas":
+            nueva_fecha_fin = (datetime.now() + timedelta(weeks=2)).strftime("%d/%m/%Y")
+        else:
+            nueva_fecha_fin = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+
+        with conexion_bd() as conn:
+            if conn:
+                try:
+                    c = conn.cursor()
+                    c.execute("UPDATE usuarios SET fecha_abono=?, fecha_fin=? WHERE dni=?", 
+                              (nueva_fecha_inicio, nueva_fecha_fin, dni))
+                    conn.commit()
+                    messagebox.showinfo("Éxito", f"Pago actualizado correctamente.\nNueva Fecha de Inicio: {nueva_fecha_inicio}\nNueva Fecha de Finalización: {nueva_fecha_fin}")
+                    ventana_actualizar_pago.destroy()
+                except sqlite3.Error as e:
+                    messagebox.showerror("Error de Base de Datos", f"Error al actualizar el pago: {e}")
+
+    ventana_actualizar_pago = ctk.CTkToplevel()
+    ventana_actualizar_pago.title("Actualizar Pago")
+    ventana_actualizar_pago.geometry("350x300")
+
+    var_duracion = ctk.StringVar(value="Dos Semanas")
+    ctk.CTkLabel(ventana_actualizar_pago, text="Nueva Duración del Abono:", font=("Helvetica", 12)).pack(pady=10)
+    ctk.CTkRadioButton(ventana_actualizar_pago, text="Dos Semanas", variable=var_duracion, value="Dos Semanas").pack(anchor=ctk.W, padx=20)
+    ctk.CTkRadioButton(ventana_actualizar_pago, text="Un Mes", variable=var_duracion, value="Un Mes").pack(anchor=ctk.W, padx=20)
+
+    btn_guardar = ctk.CTkButton(ventana_actualizar_pago, text="Guardar", command=guardar_pago_actualizado)
+    btn_guardar.pack(pady=20)
+
+    ventana_actualizar_pago.lift()
+    ventana_actualizar_pago.focus_set()
+    ventana_actualizar_pago.grab_set()
+
+# Función para editar las fechas de abono y finalización
+def editar_fechas(dni):
+    def guardar_fechas_editadas():
+        nueva_fecha_abono = entrada_fecha_abono.get().strip()
+        nueva_fecha_fin = entrada_fecha_fin.get().strip()
+
+        if not nueva_fecha_abono or not nueva_fecha_fin:
+            messagebox.showerror("Error", "Todos los campos son obligatorios.")
+            return
+
+        try:
+            # Validar las fechas
+            datetime.strptime(nueva_fecha_abono, "%d/%m/%Y")
+            datetime.strptime(nueva_fecha_fin, "%d/%m/%Y")
+        except ValueError:
+            messagebox.showerror("Error", "Formato de fecha inválido. Use DD/MM/YYYY.")
+            return
+
+        with conexion_bd() as conn:
+            if conn:
+                try:
+                    c = conn.cursor()
+                    c.execute("UPDATE usuarios SET fecha_abono=?, fecha_fin=? WHERE dni=?", 
+                              (nueva_fecha_abono, nueva_fecha_fin, dni))
+                    conn.commit()
+                    messagebox.showinfo("Éxito", "Fechas actualizadas correctamente.")
+                    ventana_editar_fechas.destroy()
+                except sqlite3.Error as e:
+                    messagebox.showerror("Error de Base de Datos", f"Error al actualizar las fechas: {e}")
+
+    ventana_editar_fechas = ctk.CTkToplevel()
+    ventana_editar_fechas.title("Editar Fechas")
+    ventana_editar_fechas.geometry("350x300")
+
+    ctk.CTkLabel(ventana_editar_fechas, text="Nueva Fecha de Abono (DD/MM/YYYY):", font=("Helvetica", 12)).pack(pady=5)
+    entrada_fecha_abono = ctk.CTkEntry(ventana_editar_fechas, font=("Helvetica", 12))
+    entrada_fecha_abono.pack(pady=5)
+
+    ctk.CTkLabel(ventana_editar_fechas, text="Nueva Fecha de Finalización (DD/MM/YYYY):", font=("Helvetica", 12)).pack(pady=5)
+    entrada_fecha_fin = ctk.CTkEntry(ventana_editar_fechas, font=("Helvetica", 12))
+    entrada_fecha_fin.pack(pady=5)
+
+    btn_guardar = ctk.CTkButton(ventana_editar_fechas, text="Guardar", command=guardar_fechas_editadas)
+    btn_guardar.pack(pady=20)
+
+    ventana_editar_fechas.lift()
+    ventana_editar_fechas.focus_set()
+    ventana_editar_fechas.grab_set()
+
+# Función para editar el teléfono del usuario
+def editar_telefono(dni):
+    def guardar_telefono_editado():
+        nuevo_telefono = entrada_telefono.get().strip()
+
+        if not nuevo_telefono:
+            messagebox.showerror("Error", "El campo de teléfono es obligatorio.")
+            return
+
+        with conexion_bd() as conn:
+            if conn:
+                try:
+                    c = conn.cursor()
+                    c.execute("UPDATE usuarios SET telefono=? WHERE dni=?", (nuevo_telefono, dni))
+                    conn.commit()
+                    messagebox.showinfo("Éxito", "Teléfono actualizado correctamente.")
+                    ventana_editar_telefono.destroy()
+                except sqlite3.Error as e:
+                    messagebox.showerror("Error de Base de Datos", f"Error al actualizar el teléfono: {e}")
+
+    ventana_editar_telefono = ctk.CTkToplevel()
+    ventana_editar_telefono.title("Editar Teléfono")
+    ventana_editar_telefono.geometry("300x200")
+
+    ctk.CTkLabel(ventana_editar_telefono, text="Nuevo Teléfono:", font=("Helvetica", 12)).pack(pady=10)
+    entrada_telefono = ctk.CTkEntry(ventana_editar_telefono, font=("Helvetica", 12))
+    entrada_telefono.pack(pady=10)
+
+    btn_guardar = ctk.CTkButton(ventana_editar_telefono, text="Guardar", command=guardar_telefono_editado)
+    btn_guardar.pack(pady=20)
+
+    ventana_editar_telefono.lift()
+    ventana_editar_telefono.focus_set()
+    ventana_editar_telefono.grab_set()
+
+# Función para buscar un usuario por DNI
+def buscar_usuario():
+    entrada_dni.focus_set
+    dni = entrada_dni.get().strip()
+    if not dni:
+        messagebox.showerror("Error", "Por favor, ingrese un DNI válido.")
+        return
+
+    with conexion_bd() as conn:
+        if conn:
+            try:
+                c = conn.cursor()
+                c.execute("SELECT dni, nombre, telefono, fecha_abono, fecha_fin FROM usuarios WHERE dni=?", (dni,))
+                usuario = c.fetchone()
+                mostrar_info_usuario(usuario)
+            except sqlite3.Error as e:
+                messagebox.showerror("Error de Base de Datos", f"Error al buscar el usuario: {e}")
+
+
+def agregar_usuario():
+    def guardar_usuario():
+        dni = entrada_dni.get().strip()
+        nombre = entrada_nombre.get().strip()
+        telefono = entrada_telefono.get().strip()
+
+        # Obtener la duración seleccionada
+        duracion_abono = var_duracion.get()
+        if duracion_abono == "Un Mes":
+            fecha_fin = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+        elif duracion_abono == "Dos Semanas":
+            fecha_fin = (datetime.now() + timedelta(weeks=2)).strftime("%d/%m/%Y")
+        else:
+            messagebox.showerror("Error", "Seleccione una duración válida.")
+            return
+
+        if not dni or not nombre or not telefono:
+            messagebox.showerror("Error", "Todos los campos son obligatorios.")
+            return
+
+        with conexion_bd() as conn:
+            if conn:
+                try:
+                    c = conn.cursor()
+                    c.execute("INSERT INTO usuarios (dni, nombre, telefono, fecha_abono, fecha_fin) VALUES (?, ?, ?, ?, ?)", 
+                              (dni, nombre, telefono, datetime.now().strftime("%d/%m/%Y"), fecha_fin))
+                    conn.commit()
+                    messagebox.showinfo("Éxito", "Usuario agregado correctamente.")
+                    ventana_agregar.destroy()
+                except sqlite3.IntegrityError:
+                    messagebox.showerror("Error", "El DNI ya está registrado.")
+                except sqlite3.Error as e:
+                    messagebox.showerror("Error de Base de Datos", f"Error al agregar el usuario: {e}")
+
+    ventana_agregar = ctk.CTkToplevel()
+    ventana_agregar.title("Agregar Usuario")
+    ventana_agregar.geometry("350x500")
+
+    ctk.CTkLabel(ventana_agregar, text="DNI:", font=("Helvetica", 12)).pack(pady=5)
+    entrada_dni = ctk.CTkEntry(ventana_agregar, font=("Helvetica", 12))
+    entrada_dni.pack(pady=5)
+
+    ctk.CTkLabel(ventana_agregar, text="Nombre:", font=("Helvetica", 12)).pack(pady=5)
+    entrada_nombre = ctk.CTkEntry(ventana_agregar, font=("Helvetica", 12))
+    entrada_nombre.pack(pady=5)
+
+    ctk.CTkLabel(ventana_agregar, text="Teléfono:", font=("Helvetica", 12)).pack(pady=5)
+    entrada_telefono = ctk.CTkEntry(ventana_agregar, font=("Helvetica", 12))
+    entrada_telefono.pack(pady=5)
+
+    ctk.CTkLabel(ventana_agregar, text="Duración del Abono:", font=("Helvetica", 12)).pack(pady=5)
+    var_duracion = ctk.StringVar(value="Dos Semanas")
+    ctk.CTkRadioButton(ventana_agregar, text="Dos Semanas", variable=var_duracion, value="Dos Semanas").pack(anchor=ctk.W, padx=20)
+    ctk.CTkRadioButton(ventana_agregar, text="Un Mes", variable=var_duracion, value="Un Mes").pack(anchor=ctk.W, padx=20)
+
+    btn_guardar = ctk.CTkButton(ventana_agregar, text="Guardar", command=guardar_usuario)
+    btn_guardar.pack(pady=20)
+
+    ventana_agregar.lift()
+    ventana_agregar.focus_set()
+    ventana_agregar.grab_set()
+
+
+# Función para eliminar un usuario
+def eliminar_usuario(dni):
+    if messagebox.askyesno("Confirmar", "¿Está seguro de que desea eliminar este usuario?"):
+        with conexion_bd() as conn:
+            if conn:
+                try:
+                    c = conn.cursor()
+                    c.execute("DELETE FROM usuarios WHERE dni=?", (dni,))
+                    conn.commit()
+                    messagebox.showinfo("Éxito", "Usuario eliminado correctamente.")
+                except sqlite3.Error as e:
+                    messagebox.showerror("Error de Base de Datos", f"Error al eliminar el usuario: {e}")
+
+def autenticar_usuario(usuario, contrasena):
+    # Aquí deberías verificar la autenticidad de usuario y contraseña
+    # Por ejemplo, usando una tabla en la base de datos para credenciales de administrador
+    # Esto es solo un ejemplo simple
+    if usuario == 'admin' and contrasena == 'admin123':  # Cambia esto según sea necesario
+        return True
+    return False
+
+def abrir_sqlite_browser():
+    try:
+        # Solicitar autenticación
+        usuario = simpledialog.askstring("Autenticación", "Usuario:", parent=raiz)
+        if usuario is None:
+            raise ValueError("Autenticación cancelada por el usuario.")
+        
+        contrasena = simpledialog.askstring("Autenticación", "Contraseña:", show='*', parent=raiz)
+        if contrasena is None:
+            raise ValueError("Autenticación cancelada por el usuario.")
+        
+        
+        
+        if not autenticar_usuario(usuario, contrasena):
+            messagebox.showerror("Autenticación Fallida", "Usuario o contraseña incorrectos.")
+            return
+        
+        # Ruta completa al ejecutable de SQLite Browser portable
+        sqlite_browser_path = r'C:\Program Files\DB Browser for SQLite\DB Browser for SQLite.exe'
+        database_path = 'gimnasio.db'
+        
+        # Verificar que el archivo del navegador exista
+        if not os.path.exists(sqlite_browser_path):
+            raise FileNotFoundError(f"El archivo {sqlite_browser_path} no se encontró.")
+        
+        # Verificar que la base de datos exista
+        if not os.path.exists(database_path):
+            raise FileNotFoundError(f"El archivo {database_path} no se encontró.")
+        
+        # Intentar abrir el archivo usando el explorador de archivos de Windows
+        subprocess.run([sqlite_browser_path, database_path], check=True)
+    except subprocess.CalledProcessError as e:
+        messagebox.showerror("Error al Abrir SQLite Browser", f"No se pudo abrir SQLite Browser: {e}")
+    except FileNotFoundError as e:
+        messagebox.showerror("Archivo No Encontrado", str(e))
+    except PermissionError as e:
+        messagebox.showerror("Error de Permiso", f"Permiso denegado: {e}")
+    except ValueError as e:
+        messagebox.showwarning("Advertencia", str(e))
+    except Exception as e:
+        messagebox.showerror("Error Inesperado", f"Ocurrió un error inesperado: {e}")
+
+raiz = ctk.CTk()
+raiz.title("GIMNASIO & PILETA FLIPPER")
+raiz.geometry("600x600")
+
+
+# ícono de la aplicación
+ruta_icono = ""  
+try:
+    raiz.iconbitmap(ruta_icono)
+except tk.TclError:
+    print(f"No se pudo establecer el ícono con la ruta: {ruta_icono}")
+
+#  logo de la aplicación
+ruta_logo = "logo.png"
+if os.path.exists(ruta_logo):
+    logo = Image.open(ruta_logo)
+    logo = logo.resize((200, 200), Image.LANCZOS)
+    imagen_logo = ImageTk.PhotoImage(logo)
+    raiz.iconphoto(True, imagen_logo)
+else:
+    print("Error: Logo no encontrado")
+    imagen_logo = None
+
+# Mostrar logo
+if imagen_logo:
+    etiqueta_logo = ctk.CTkLabel(raiz, image=imagen_logo, text="")
+    etiqueta_logo.image = imagen_logo  # Mantener una referencia al objeto de imagen
+    etiqueta_logo.pack(pady=20)
+else:
+    etiqueta_logo = ctk.CTkLabel(raiz, text="Logo no encontrado", font=("Helvetica", 16))
+    etiqueta_logo.pack(pady=20)
+
+# Título principal
+etiqueta_titulo = ctk.CTkLabel(raiz, text="GIMNASIO & PILETA FLIPPER", font=("Helvetica", 20, "bold"))
+etiqueta_titulo.pack(pady=10)
+
+# Entrada para el DNI del usuario
+entrada_dni = ctk.CTkEntry(raiz, placeholder_text="Ingrese el DNI del usuario", font=("Helvetica", 16), width=200)
+entrada_dni.pack(pady=20)
+
+entrada_dni.bind("<Return>", lambda event: buscar_usuario())
+
+
+# Botones
+boton_buscar = ctk.CTkButton(raiz, text="Buscar Usuario", command=buscar_usuario, font=("Helvetica", 15), width=160)
+boton_buscar.pack(pady=12)
+
+boton_agregar = ctk.CTkButton(raiz, text="Agregar Usuario", command=agregar_usuario, font=("Helvetica", 15), width=160)
+boton_agregar.pack(pady=12)
+
+btn_abrir_sqlite_browser = ctk.CTkButton(raiz, text="Lista de Usuarios", command=abrir_sqlite_browser, font=("Helvetica", 15), width=160)
+btn_abrir_sqlite_browser.pack(pady=12)
+
+boton_salir = ctk.CTkButton(raiz, text="Salir", command=raiz.destroy, font=("Helvetica", 15), width=160)
+boton_salir.pack(pady=12)
+
+# Iniciar la aplicación
+raiz.mainloop()
