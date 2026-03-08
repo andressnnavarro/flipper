@@ -67,6 +67,7 @@ def modificar_tabla():
         finally:
             conn.close()
 
+crear_tabla()
 modificar_tabla()
 
 def mostrar_info_usuario(usuario_encontrado):
@@ -103,14 +104,13 @@ def mostrar_info_usuario(usuario_encontrado):
         btn_cerrar = ctk.CTkButton(ventana_info_usuario, text="Cerrar", command=ventana_info_usuario.destroy)
         btn_cerrar.pack(pady=10)
 
-        ventana_info_usuario.bind("<*>", lambda event:ventana_info_usuario.destroy())
         ventana_info_usuario.lift()
         ventana_info_usuario.focus_set()
         ventana_info_usuario.grab_set()
         ventana_info_usuario.bind("<Destroy>",lambda event:entrada_dni.delete(0,tk.END))
     else:
         messagebox.showerror("Error", "No se encontró información del usuario.")
-        ventana_info_usuario.bind("<Destroy>",lambda event:entrada_dni.delete(0,tk.END))
+        entrada_dni.delete(0, tk.END)
 
 # Función para actualizar el pago 
 def actualizar_pago(dni):
@@ -236,7 +236,7 @@ def editar_telefono(dni):
 
 # Función para buscar un usuario por DNI
 def buscar_usuario():
-    entrada_dni.focus_set
+    entrada_dni.focus_set()
     dni = entrada_dni.get().strip()
     if not dni:
         messagebox.showerror("Error", "Por favor, ingrese un DNI válido.")
